@@ -144,6 +144,7 @@ export interface Settings {
 	branchSummary?: BranchSummarySettings;
 	retry?: RetrySettings;
 	hideThinkingBlock?: boolean;
+	hideThinkingBlockByModel?: Record<string, boolean>; // per-model hide-thinking overrides keyed by "provider/modelId"
 	showCacheMissNotices?: boolean; // default: false - show cache cost and provider recovery notices
 	externalEditor?: string; // Command for Ctrl+G external editor; takes precedence over VISUAL/EDITOR
 	shellPath?: string; // Custom shell path (e.g., for Cygwin users on Windows); supports leading ~ expansion
@@ -899,6 +900,40 @@ export class SettingsManager {
 		}
 		this.markModified("modelThinkingLevels");
 		this.save();
+	}
+
+	getHideThinkingBlockForModel(provider: string, modelId: string): boolean | undefined {
+		return this.settings.hideThinkingBlockByModel?.[`${provider}/${modelId}`];
+	}
+
+	getAllHideThinkingBlockOverrides(): Record<string, boolean> {
+		return { ...(this.settings.hideThinkingBlockByModel ?? {}) };
+	}
+
+	setHideThinkingBlockForModel(provider: string, modelId: string, hide: boolean): void {
+		if (!this.globalSettings.hideThinkingBlockByModel) {
+			this.globalSettings.hideThinkingBlockByModel = {};
+		}
+		this.globalSettings.hideThinkingBlockByModel[`${provider}/${modelId}`] = hide;
+		this.markModified("hideThinkingBlockByModel");
+		this.save();
+	}
+
+	removeHideThinkingBlockForModel(provider: string, modelId: string): void {
+		if (!this.globalSettings.hideThinkingBlockByModel) return;
+		delete this.globalSettings.hideThinkingBlockByModel[`${provider}/${modelId}`];
+		if (Object.keys(this.globalSettings.hideThinkingBlockByModel).length === 0) {
+			delete this.globalSettings.hideThinkingBlockByModel;
+		}
+		this.markModified("hideThinkingBlockByModel");
+		this.save();
+	}
+
+	shouldHideThinkingBlock(provider: string, modelId: string): boolean {
+		const perModel = this.settings.hideThinkingBlockByModel?.[`${provider}/${modelId}`];
+		// Explicit false force-shows over a global true; only absence inherits.
+		if (perModel !== undefined) return perModel;
+		return this.settings.hideThinkingBlock ?? false;
 	}
 
 	getTransport(): TransportSetting {

@@ -143,4 +143,126 @@ describe("SettingsSelectorComponent", () => {
 		expect(output).toContain("  ✓ medium");
 		expect(output).toContain("→   high");
 	});
+
+	it("keeps the configured per-model hide-thinking override marked while browsing", async () => {
+		harness = await createHarness({
+			models: [{ id: "thinking-model", reasoning: true }],
+		});
+		const model = harness.getModel("thinking-model")!;
+		const modelKey = `${model.provider}/${model.id}`;
+		const config = {
+			defaultModel: modelKey,
+			availableDefaultModels: [model],
+			hideThinkingBlock: true,
+			hideThinkingBlockByModel: { [modelKey]: false },
+		} as unknown as SettingsConfig;
+		const callbacks = { onCancel: () => {} } as unknown as SettingsCallbacks;
+		const list = new SettingsSelectorComponent(config, callbacks).getSettingsList();
+
+		list.selectItem("hide-thinking-per-model");
+		list.handleInput("\r");
+		list.handleInput("\r");
+
+		let output = stripAnsi(list.render(120).join("\n"));
+		expect(output).toContain("→ ✓ show");
+		expect(output).toContain("    (clear override)");
+
+		list.handleInput("\x1b[B");
+		output = stripAnsi(list.render(120).join("\n"));
+		expect(output).toContain("  ✓ show");
+		expect(output).toContain("→   (clear override)");
+	});
+
+	it("selecting hide sets a per-model hide override", async () => {
+		harness = await createHarness({
+			models: [{ id: "thinking-model", reasoning: true }],
+		});
+		const model = harness.getModel("thinking-model")!;
+		const modelKey = `${model.provider}/${model.id}`;
+		const onChange = vi.fn();
+		const onRemove = vi.fn();
+		const config = {
+			defaultModel: modelKey,
+			availableDefaultModels: [model],
+			hideThinkingBlock: false,
+			hideThinkingBlockByModel: {},
+		} as unknown as SettingsConfig;
+		const callbacks = {
+			onModelHideThinkingBlockChange: onChange,
+			onModelHideThinkingBlockRemove: onRemove,
+			onCancel: () => {},
+		} as unknown as SettingsCallbacks;
+		const list = new SettingsSelectorComponent(config, callbacks).getSettingsList();
+
+		list.selectItem("hide-thinking-per-model");
+		list.handleInput("\r");
+		list.handleInput("\r");
+		list.handleInput("\r");
+
+		expect(onChange).toHaveBeenCalledWith(model.provider, model.id, true);
+		expect(onRemove).not.toHaveBeenCalled();
+	});
+
+	it("selecting show sets a per-model force-show override", async () => {
+		harness = await createHarness({
+			models: [{ id: "thinking-model", reasoning: true }],
+		});
+		const model = harness.getModel("thinking-model")!;
+		const modelKey = `${model.provider}/${model.id}`;
+		const onChange = vi.fn();
+		const onRemove = vi.fn();
+		const config = {
+			defaultModel: modelKey,
+			availableDefaultModels: [model],
+			hideThinkingBlock: true,
+			hideThinkingBlockByModel: { [modelKey]: true },
+		} as unknown as SettingsConfig;
+		const callbacks = {
+			onModelHideThinkingBlockChange: onChange,
+			onModelHideThinkingBlockRemove: onRemove,
+			onCancel: () => {},
+		} as unknown as SettingsCallbacks;
+		const list = new SettingsSelectorComponent(config, callbacks).getSettingsList();
+
+		list.selectItem("hide-thinking-per-model");
+		list.handleInput("\r");
+		list.handleInput("\r");
+		list.handleInput("\x1b[B");
+		list.handleInput("\r");
+
+		expect(onChange).toHaveBeenCalledWith(model.provider, model.id, false);
+		expect(onRemove).not.toHaveBeenCalled();
+	});
+
+	it("selecting clear override removes a per-model hide override", async () => {
+		harness = await createHarness({
+			models: [{ id: "thinking-model", reasoning: true }],
+		});
+		const model = harness.getModel("thinking-model")!;
+		const modelKey = `${model.provider}/${model.id}`;
+		const onChange = vi.fn();
+		const onRemove = vi.fn();
+		const config = {
+			defaultModel: modelKey,
+			availableDefaultModels: [model],
+			hideThinkingBlock: true,
+			hideThinkingBlockByModel: { [modelKey]: true },
+		} as unknown as SettingsConfig;
+		const callbacks = {
+			onModelHideThinkingBlockChange: onChange,
+			onModelHideThinkingBlockRemove: onRemove,
+			onCancel: () => {},
+		} as unknown as SettingsCallbacks;
+		const list = new SettingsSelectorComponent(config, callbacks).getSettingsList();
+
+		list.selectItem("hide-thinking-per-model");
+		list.handleInput("\r");
+		list.handleInput("\r");
+		list.handleInput("\x1b[B");
+		list.handleInput("\x1b[B");
+		list.handleInput("\r");
+
+		expect(onRemove).toHaveBeenCalledWith(model.provider, model.id);
+		expect(onChange).not.toHaveBeenCalled();
+	});
 });

@@ -13,7 +13,7 @@ const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
  */
 export class AssistantMessageComponent extends Container {
 	private contentContainer: Container;
-	private hideThinkingBlock: boolean;
+	private shouldHideThinking: (message: AssistantMessage) => boolean;
 	private markdownTheme: MarkdownTheme;
 	private hiddenThinkingLabel: string;
 	private outputPad: number;
@@ -25,7 +25,7 @@ export class AssistantMessageComponent extends Container {
 
 	constructor(
 		message?: AssistantMessage,
-		hideThinkingBlock = false,
+		shouldHideThinking: (message: AssistantMessage) => boolean = () => false,
 		markdownTheme: MarkdownTheme = getMarkdownTheme(),
 		hiddenThinkingLabel = "Thinking...",
 		outputPad = 1,
@@ -33,7 +33,7 @@ export class AssistantMessageComponent extends Container {
 	) {
 		super();
 
-		this.hideThinkingBlock = hideThinkingBlock;
+		this.shouldHideThinking = shouldHideThinking;
 		this.markdownTheme = markdownTheme;
 		this.hiddenThinkingLabel = hiddenThinkingLabel;
 		this.outputPad = outputPad;
@@ -55,11 +55,16 @@ export class AssistantMessageComponent extends Container {
 		}
 	}
 
-	setHideThinkingBlock(hide: boolean): void {
-		this.hideThinkingBlock = hide;
+	refreshThinkingVisibility(provider?: string, modelId?: string): void {
+		const message = this.lastMessage;
+		if (provider !== undefined && modelId !== undefined) {
+			if (!message || message.provider !== provider || message.model !== modelId) {
+				return;
+			}
+		}
 		this.thinkingVisibilityOverrides.clear();
-		if (this.lastMessage) {
-			this.updateContent(this.lastMessage);
+		if (message) {
+			this.updateContent(message);
 		}
 	}
 
@@ -140,7 +145,7 @@ export class AssistantMessageComponent extends Container {
 					.some((c) => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()));
 
 				const runIndex = thinkingRunIndex++;
-				const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;
+				const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.shouldHideThinking(message);
 				const thinkingComponent = hidden
 					? new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0)
 					: new Markdown(

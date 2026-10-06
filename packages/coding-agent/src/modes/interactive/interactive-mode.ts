@@ -512,6 +512,8 @@ export class InteractiveMode {
 
 	// Thinking block visibility state
 	private hideThinkingBlock = false;
+	private resolveHideThinking = (message: AssistantMessage): boolean =>
+		this.settingsManager.shouldHideThinkingBlock(message.provider, message.model);
 	private outputPad = 1;
 	private readonly mermaidMarkdownTransformer: MarkdownTransformer = createMermaidMarkdownTransformer({
 		getMode: () => this.settingsManager.getMermaidRenderingMode(),
@@ -3487,7 +3489,7 @@ export class InteractiveMode {
 				} else if (event.message.role === "assistant") {
 					this.streamingComponent = new AssistantMessageComponent(
 						undefined,
-						this.hideThinkingBlock,
+						this.resolveHideThinking,
 						this.getMarkdownThemeWithSettings(),
 						this.hiddenThinkingLabel,
 						this.outputPad,
@@ -3932,7 +3934,7 @@ export class InteractiveMode {
 			case "assistant": {
 				const assistantComponent = new AssistantMessageComponent(
 					message,
-					this.hideThinkingBlock,
+					this.resolveHideThinking,
 					this.getMarkdownThemeWithSettings(),
 					this.hiddenThinkingLabel,
 					this.outputPad,
@@ -4540,7 +4542,16 @@ export class InteractiveMode {
 	private updateThinkingBlockVisibility(): void {
 		for (const child of this.chatContainer.children) {
 			if (child instanceof AssistantMessageComponent) {
-				child.setHideThinkingBlock(this.hideThinkingBlock);
+				child.refreshThinkingVisibility();
+			}
+		}
+		this.ui.requestRender();
+	}
+
+	private refreshThinkingVisibilityForModel(provider: string, modelId: string): void {
+		for (const child of this.chatContainer.children) {
+			if (child instanceof AssistantMessageComponent) {
+				child.refreshThinkingVisibility(provider, modelId);
 			}
 		}
 		this.ui.requestRender();
@@ -4895,6 +4906,7 @@ export class InteractiveMode {
 					terminalTheme: this.themeController.getTerminalTheme(),
 					availableThemes: getAvailableThemes(),
 					hideThinkingBlock: this.hideThinkingBlock,
+					hideThinkingBlockByModel: this.settingsManager.getAllHideThinkingBlockOverrides(),
 					mermaidRenderingMode: this.settingsManager.getMermaidRenderingMode(),
 					collapseChangelog: this.settingsManager.getCollapseChangelog(),
 					enableInstallTelemetry: this.settingsManager.getEnableInstallTelemetry(),
@@ -4986,6 +4998,14 @@ export class InteractiveMode {
 							this.footer.invalidate();
 							this.updateEditorBorderColor();
 						}
+					},
+					onModelHideThinkingBlockChange: (provider, modelId, hide) => {
+						this.settingsManager.setHideThinkingBlockForModel(provider, modelId, hide);
+						this.refreshThinkingVisibilityForModel(provider, modelId);
+					},
+					onModelHideThinkingBlockRemove: (provider, modelId) => {
+						this.settingsManager.removeHideThinkingBlockForModel(provider, modelId);
+						this.refreshThinkingVisibilityForModel(provider, modelId);
 					},
 					onThemeChange: (themeSetting) => {
 						this.settingsManager.setTheme(themeSetting);

@@ -78,6 +78,7 @@ export interface SettingsConfig {
 	terminalTheme: TerminalTheme;
 	availableThemes: string[];
 	hideThinkingBlock: boolean;
+	hideThinkingBlockByModel: Record<string, boolean>;
 	mermaidRenderingMode: MermaidRenderingMode;
 	showCacheMissNotices: boolean;
 	collapseChangelog: boolean;
@@ -114,6 +115,8 @@ export interface SettingsCallbacks {
 	onCacheWarmingModeChange: (mode: CacheWarmingMode) => void;
 	onModelThinkingLevelChange: (provider: string, modelId: string, level: ThinkingLevel) => void;
 	onModelThinkingLevelRemove: (provider: string, modelId: string) => void;
+	onModelHideThinkingBlockChange: (provider: string, modelId: string, hide: boolean) => void;
+	onModelHideThinkingBlockRemove: (provider: string, modelId: string) => void;
 	onThemeChange: (theme: string) => void;
 	onThemePreview?: (theme: string) => void;
 	onHideThinkingBlockChange: (hidden: boolean) => void;
@@ -195,7 +198,7 @@ function modelDisplayLabel(model: Model<any>): string {
 	return `${model.id} [${model.provider}]`;
 }
 
-function modelThinkingOverridesSummary(overrides: Record<string, ThinkingLevel>): string {
+function modelOverridesSummary(overrides: Record<string, unknown>): string {
 	const count = Object.keys(overrides).length;
 	if (count === 0) return "none";
 	return `${count} configured`;
@@ -471,6 +474,8 @@ export class SettingsSelectorComponent extends Container {
 		const cycleThinkingKey = keyDisplayText("app.thinking.cycle");
 		let currentWarnings = { ...config.warnings };
 		const currentModelThinkingLevels = { ...config.modelThinkingLevels };
+		const currentModelHideThinkingBlock = { ...config.hideThinkingBlockByModel };
+		let currentHideThinkingBlock = config.hideThinkingBlock;
 		const defaultModelByValue = new Map(
 			config.availableDefaultModels.map((model) => [modelSettingKey(model), model]),
 		);
@@ -527,8 +532,113 @@ export class SettingsSelectorComponent extends Container {
 				id: "hide-thinking",
 				label: "Hide thinking",
 				description: "Hide thinking blocks in assistant responses",
-				currentValue: config.hideThinkingBlock ? "true" : "false",
+				currentValue: currentHideThinkingBlock ? "true" : "false",
 				values: ["true", "false"],
+			},
+			{
+				id: "hide-thinking-per-model",
+				label: "Hide thinking per model",
+				description: "Override hiding thinking blocks for specific models",
+				currentValue: modelOverridesSummary(currentModelHideThinkingBlock),
+				submenu: (_currentValue, done) => {
+					const steps: SteppedSubmenuStep[] = [
+						{
+							key: "model",
+							title: "Per-Model Hide Thinking",
+							description: "Select a model to configure",
+							options: () => {
+								const sorted = [...config.availableDefaultModels].sort((a, b) => {
+									const aKey = modelSettingKey(a);
+									const bKey = modelSettingKey(b);
+									if (aKey === currentModelKey) return -1;
+									if (bKey === currentModelKey) return 1;
+									if (aKey === currentDefaultModelKey) return -1;
+									if (bKey === currentDefaultModelKey) return 1;
+									return a.provider.localeCompare(b.provider);
+								});
+								const items: SelectItem[] = sorted.map((model) => {
+									const key = modelSettingKey(model);
+									const override = currentModelHideThinkingBlock[key];
+									return {
+										value: key,
+										label: modelItemLabel(model),
+										description: override === undefined ? undefined : override ? "hidden" : "visible",
+									};
+								});
+								if (items.length === 0) {
+									items.push({
+										value: "__none__",
+										label: "No models available",
+										description: "Log in to a provider or configure an API key first",
+									});
+								}
+								return items;
+							},
+							preselect: () => currentModelKey ?? currentDefaultModelKey,
+							searchable: true,
+							layout: MODEL_PICKER_LAYOUT,
+						},
+						{
+							key: "visibility",
+							title: (ctx) => {
+								const m = defaultModelByValue.get(ctx.model);
+								return `Hide Thinking for ${m ? modelDisplayLabel(m) : ctx.model}`;
+							},
+							description: "Hide thinking blocks for this model, always show them, or clear the override",
+							options: (ctx) => {
+								const model = defaultModelByValue.get(ctx.model);
+								if (!model) return [];
+								const active = currentModelHideThinkingBlock[ctx.model];
+								const items: SelectItem[] = [
+									{
+										value: "true",
+										label: `${active === true ? "✓ " : "  "}hide`,
+										description: "Hide thinking blocks for this model",
+									},
+									{
+										value: "false",
+										label: `${active === false ? "✓ " : "  "}show`,
+										description: "Always show thinking blocks for this model",
+									},
+								];
+								if (active !== undefined) {
+									items.push({
+										value: CLEAR_OVERRIDE_VALUE,
+										label: "  (clear override)",
+										description: `Revert to global default (${currentHideThinkingBlock ? "hidden" : "visible"})`,
+									});
+								}
+								return items;
+							},
+							preselect: (ctx) => {
+								const active = currentModelHideThinkingBlock[ctx.model];
+								return active === undefined ? undefined : String(active);
+							},
+						},
+					];
+
+					const summary = () => modelOverridesSummary(currentModelHideThinkingBlock);
+
+					return new SteppedSubmenu(
+						steps,
+						(selections) => {
+							const model = defaultModelByValue.get(selections.model);
+							if (!model) return;
+							if (selections.visibility === CLEAR_OVERRIDE_VALUE) {
+								callbacks.onModelHideThinkingBlockRemove(model.provider, model.id);
+								delete currentModelHideThinkingBlock[selections.model];
+							} else {
+								const hide = selections.visibility === "true";
+								callbacks.onModelHideThinkingBlockChange(model.provider, model.id, hide);
+								currentModelHideThinkingBlock[selections.model] = hide;
+							}
+						},
+						() => {
+							done(summary());
+						},
+						{ loop: true },
+					);
+				},
 			},
 			{
 				id: "mermaid-rendering",
@@ -605,7 +715,7 @@ export class SettingsSelectorComponent extends Container {
 				id: "model-thinking",
 				label: "Default thinking level per model",
 				description: `Override the default thinking level for specific models. ${cycleThinkingKey} cycles in-session.`,
-				currentValue: modelThinkingOverridesSummary(currentModelThinkingLevels),
+				currentValue: modelOverridesSummary(currentModelThinkingLevels),
 				submenu: (_currentValue, done) => {
 					const steps: SteppedSubmenuStep[] = [
 						{
@@ -676,7 +786,7 @@ export class SettingsSelectorComponent extends Container {
 						},
 					];
 
-					const summary = () => modelThinkingOverridesSummary(currentModelThinkingLevels);
+					const summary = () => modelOverridesSummary(currentModelThinkingLevels);
 
 					return new SteppedSubmenu(
 						steps,
@@ -909,7 +1019,8 @@ export class SettingsSelectorComponent extends Container {
 						callbacks.onCacheWarmingModeChange(newValue as CacheWarmingMode);
 						break;
 					case "hide-thinking":
-						callbacks.onHideThinkingBlockChange(newValue === "true");
+						currentHideThinkingBlock = newValue === "true";
+						callbacks.onHideThinkingBlockChange(currentHideThinkingBlock);
 						break;
 					case "mermaid-rendering":
 						callbacks.onMermaidRenderingModeChange(newValue as MermaidRenderingMode);

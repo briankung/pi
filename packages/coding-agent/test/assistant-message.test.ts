@@ -66,7 +66,7 @@ describe("AssistantMessageComponent", () => {
 
 		const component = new AssistantMessageComponent(
 			createAssistantMessage([{ type: "thinking", thinking: "private reasoning" }], { stopReason: "length" }),
-			true,
+			() => true,
 		);
 		const rendered = component.render(80).join("\n");
 
@@ -84,7 +84,7 @@ describe("AssistantMessageComponent", () => {
 				{ type: "thinking", thinking: "second thought" },
 				{ type: "text", text: "answer" },
 			]),
-			true,
+			() => true,
 		);
 		const rendered = stripAnsi(component.render(80).join("\n"));
 
@@ -127,6 +127,44 @@ describe("AssistantMessageComponent", () => {
 		expect(collapsed).toContain("second reasoning");
 	});
 
+	test("scoped refresh only clears the click override for the matching model", () => {
+		initTheme("dark");
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "reasoning" },
+				{ type: "text", text: "answer" },
+			]),
+		);
+		const width = 80;
+		const lines = component.render(width);
+		const thinkingRow = lines.findIndex((line) => stripAnsi(line).includes("reasoning"));
+		expect(thinkingRow).toBeGreaterThanOrEqual(0);
+		const event: TuiMouseEvent = {
+			type: "click",
+			button: "left",
+			x: 1,
+			y: thinkingRow,
+			screenX: 1,
+			screenY: thinkingRow,
+			width,
+			height: lines.length,
+			shift: false,
+			alt: false,
+			ctrl: false,
+			clickCount: 1,
+		};
+		expect(component.handleMouse(event)?.handled).toBe(true);
+		expect(stripAnsi(component.render(width).join("\n"))).not.toContain("reasoning");
+
+		// A non-matching model refresh leaves the click override intact.
+		component.refreshThinkingVisibility("anthropic", "claude-sonnet-4-5");
+		expect(stripAnsi(component.render(width).join("\n"))).not.toContain("reasoning");
+
+		// The matching model refresh clears the override, re-expanding the block.
+		component.refreshThinkingVisibility("openai", "gpt-4o-mini");
+		expect(stripAnsi(component.render(width).join("\n"))).toContain("reasoning");
+	});
+
 	test("uses configured output padding for text and thinking", () => {
 		initTheme("dark");
 
@@ -135,7 +173,7 @@ describe("AssistantMessageComponent", () => {
 				{ type: "text", text: "hello" },
 				{ type: "thinking", thinking: "reasoning" },
 			]),
-			false,
+			() => false,
 			undefined,
 			"Thinking...",
 			1,
@@ -155,7 +193,7 @@ describe("AssistantMessageComponent", () => {
 		initTheme("dark");
 		const calls: string[] = [];
 		const message = createAssistantMessage([{ type: "text", text: "The result is $x^2$." }]);
-		const component = new AssistantMessageComponent(message, false, undefined, "Thinking...", 1, [
+		const component = new AssistantMessageComponent(message, () => false, undefined, "Thinking...", 1, [
 			(markdown, context) => {
 				calls.push("formula");
 				expect(context).toEqual({ messageType: "assistant", isStreaming: false, availableWidth: 78 });
@@ -175,7 +213,7 @@ describe("AssistantMessageComponent", () => {
 		initTheme("dark");
 		const streamingStates: boolean[] = [];
 		const message = createAssistantMessage([{ type: "text", text: "partial" }]);
-		const component = new AssistantMessageComponent(undefined, false, undefined, "Thinking...", 1, [
+		const component = new AssistantMessageComponent(undefined, () => false, undefined, "Thinking...", 1, [
 			(markdown, context) => {
 				streamingStates.push(context.isStreaming);
 				return context.isStreaming ? markdown : `${markdown} transformed`;
@@ -195,7 +233,7 @@ describe("AssistantMessageComponent", () => {
 		const availableWidths: number[] = [];
 		const component = new AssistantMessageComponent(
 			createAssistantMessage([{ type: "text", text: "answer" }]),
-			false,
+			() => false,
 			undefined,
 			"Thinking...",
 			1,
@@ -218,7 +256,7 @@ describe("AssistantMessageComponent", () => {
 		const calls: string[] = [];
 		const component = new AssistantMessageComponent(
 			createAssistantMessage([{ type: "text", text: "still visible" }]),
-			false,
+			() => false,
 			undefined,
 			"Thinking...",
 			1,
@@ -248,7 +286,7 @@ describe("AssistantMessageComponent", () => {
 			{ type: "text", text: "answer" },
 			{ type: "thinking", thinking: "reasoning" },
 		]);
-		const component = new AssistantMessageComponent(message, false, undefined, "Thinking...", 1, [
+		const component = new AssistantMessageComponent(message, () => false, undefined, "Thinking...", 1, [
 			(markdown, { messageType }) => {
 				return `${messageType}:${markdown}`;
 			},

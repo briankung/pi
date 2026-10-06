@@ -745,4 +745,84 @@ describe("SettingsManager", () => {
 			expect(manager.getShellPath()).toBe(homedir());
 		});
 	});
+
+	describe("hideThinkingBlockByModel", () => {
+		it("resolves per-model overrides over the global setting", () => {
+			const manager = SettingsManager.inMemory({
+				hideThinkingBlock: true,
+				hideThinkingBlockByModel: {
+					"anthropic/claude-sonnet-4-5": false,
+					"openai/gpt-5.1-codex": true,
+				},
+			});
+
+			// Explicit false force-shows over a global true.
+			expect(manager.shouldHideThinkingBlock("anthropic", "claude-sonnet-4-5")).toBe(false);
+			// Explicit true hides.
+			expect(manager.shouldHideThinkingBlock("openai", "gpt-5.1-codex")).toBe(true);
+			// Absent inherits the global true.
+			expect(manager.shouldHideThinkingBlock("anthropic", "claude-opus-4-5")).toBe(true);
+		});
+
+		it("inherits a false global when a model has no override", () => {
+			const manager = SettingsManager.inMemory({ hideThinkingBlock: false });
+			expect(manager.shouldHideThinkingBlock("anthropic", "claude-sonnet-4-5")).toBe(false);
+		});
+
+		it("defaults to false without any setting", () => {
+			const manager = SettingsManager.inMemory();
+			expect(manager.shouldHideThinkingBlock("anthropic", "claude-sonnet-4-5")).toBe(false);
+		});
+
+		it("sets, lists, and removes per-model overrides", () => {
+			const manager = SettingsManager.inMemory();
+			manager.setHideThinkingBlockForModel("anthropic", "claude-sonnet-4-5", false);
+			expect(manager.getHideThinkingBlockForModel("anthropic", "claude-sonnet-4-5")).toBe(false);
+			expect(manager.getAllHideThinkingBlockOverrides()).toEqual({ "anthropic/claude-sonnet-4-5": false });
+
+			manager.setHideThinkingBlockForModel("openai", "gpt-5.1-codex", true);
+			expect(manager.getAllHideThinkingBlockOverrides()).toEqual({
+				"anthropic/claude-sonnet-4-5": false,
+				"openai/gpt-5.1-codex": true,
+			});
+
+			manager.removeHideThinkingBlockForModel("anthropic", "claude-sonnet-4-5");
+			expect(manager.getHideThinkingBlockForModel("anthropic", "claude-sonnet-4-5")).toBeUndefined();
+			expect(manager.getAllHideThinkingBlockOverrides()).toEqual({ "openai/gpt-5.1-codex": true });
+		});
+
+		it("hides when a per-model true overrides a global false", () => {
+			const manager = SettingsManager.inMemory({
+				hideThinkingBlock: false,
+				hideThinkingBlockByModel: { "openai/gpt-5.1-codex": true },
+			});
+			expect(manager.shouldHideThinkingBlock("openai", "gpt-5.1-codex")).toBe(true);
+		});
+
+		it("removes the final override and clears the map", () => {
+			const manager = SettingsManager.inMemory();
+			manager.setHideThinkingBlockForModel("anthropic", "claude-sonnet-4-5", true);
+			expect(manager.getHideThinkingBlockForModel("anthropic", "claude-sonnet-4-5")).toBe(true);
+
+			manager.removeHideThinkingBlockForModel("anthropic", "claude-sonnet-4-5");
+			expect(manager.getHideThinkingBlockForModel("anthropic", "claude-sonnet-4-5")).toBeUndefined();
+			expect(manager.getAllHideThinkingBlockOverrides()).toEqual({});
+		});
+
+		it("persists per-model overrides across flush and a new manager", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(settingsPath, JSON.stringify({ hideThinkingBlock: true }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			manager.setHideThinkingBlockForModel("anthropic", "claude-sonnet-4-5", false);
+			await manager.flush();
+
+			const reloaded = SettingsManager.create(projectDir, agentDir);
+			expect(reloaded.getHideThinkingBlockForModel("anthropic", "claude-sonnet-4-5")).toBe(false);
+			expect(reloaded.shouldHideThinkingBlock("anthropic", "claude-sonnet-4-5")).toBe(false);
+			expect(JSON.parse(readFileSync(settingsPath, "utf-8"))).toMatchObject({
+				hideThinkingBlock: true,
+				hideThinkingBlockByModel: { "anthropic/claude-sonnet-4-5": false },
+			});
+		});
+	});
 });
